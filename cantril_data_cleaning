@@ -1,0 +1,190 @@
+#!/bin/bash
+
+# Function to report the lines with different number of fields than header
+checkFile() 
+{
+    local file=$1
+    local n_line=1
+
+    echo "Checking $file..." 
+
+    local header=$(head -n 1 "$file")
+    local n_header_field=$(echo "$header" | awk -F'\t' '{print NF}')
+
+    # Checking if the file is in tsv format using headers
+    if [[ "$header" != *$'\t'* ]]; then
+        echo "Error: '$file' is not tab-separated."
+        exit 1
+    fi
+
+    while IFS= read -r line; do
+        local n_columns=$(echo "$line" | awk -F'\t' '{print NF}')
+
+        if [[ "$n_columns" -ne "$n_header_field" ]]; then
+            echo "File $file: Line $n_line has $n_columns columns instead of $n_header_field" >&2
+        fi
+        n_line=$((n_line + 1))
+    done < <(tail -n +2 "$file")
+}
+
+# Function to sort the rows as per the country names
+sortFile()
+{
+    echo "Sorting $1..."
+    local output_file="sorted_$1"
+    head -n 1 "$1" > "$output_file"
+    tail -n +2 "$1" | sort -t$'\t' -k1,1 >> "$output_file"
+}
+
+# Function to filter the rows between the years 2011 and 2021 (both inclusive)
+filterYear()
+{
+    echo "Filtering $1..."
+    local output_file="filtered_$1"
+    awk -F'\t' 'BEGIN {OFS="\t"} NR==1 || ($3 >= 2011 && $3 <= 2021)' "$1" > "$output_file"
+    rm $1
+}
+
+# Function to remove the continent from the columns
+removeContinent() 
+{
+    echo "Removing Continent from $1..."
+    local output_file="no_continent_$1"
+
+    if head -n 1 "$1" | grep -q 'Continent'; then
+        local col_index=$(head -n 1 "$1" | tr '\t' '\n' | grep -n 'Continent' | cut -d ':' -f 1)
+
+        awk -v col="$col_index" 'BEGIN{FS=OFS="\t"}{for (i=col; i<NF; i++) $i=$(i+1); NF--; print}' "$1" > "$output_file"
+        rm $1
+    else
+        mv "$1" "$output_file"
+    fi
+}
+
+# Function to remove rows where the country code field is empty
+removeEmptyCountryCode() {
+    local file="$1"
+    local output_file="final_$1"
+
+    # Get the index of the "Code" column
+    local col_index=$(head -n 1 "$1" | tr '\t' '\n' | grep -n 'Code' | cut -d ':' -f 1)
+
+    # Check if the header "Code" exists
+    if [ -z "$col_index" ]; then
+        echo "Header 'Code' not found in $1."
+        return
+    fi
+
+    # Filter out rows with empty "Code"
+    awk -v col="$col_index" 'BEGIN{FS=OFS="\t"} NR==1 || $col != ""' "$1" > "$output_file"
+
+    rm $1
+}
+
+# Function to merge the cleaned files
+mergeFiles() 
+{
+    local output_file="cleaned_file.tsv"
+
+    # Pre-processing the file for joining
+    awk -F'\t' 'BEGIN {OFS="\t"} {print $1"_"$2"_"$3, $0}' "$1" > file1_preprocessed.tsv
+    awk -F'\t' 'BEGIN {OFS="\t"} {print $1"_"$2"_"$3, $0}' "$2" > file2_preprocessed.tsv
+    awk -F'\t' 'BEGIN {OFS="\t"} {print $1"_"$2"_"$3, $0}' "$3" > file3_preprocessed.tsv
+
+    # Sorting the files for 
+    sort -t$'\t' -k1,1 file1_preprocessed.tsv > sorted_combined_file1.tsv
+    sort -t$'\t' -k1,1 file2_preprocessed.tsv > sorted_combined_file2.tsv
+    sort -t$'\t' -k1,1 file3_preprocessed.tsv > sorted_combined_file3.tsv
+
+    # Removing unwanted files
+    rm file1_preprocessed.tsv file2_preprocessed.tsv file3_preprocessed.tsv
+    
+    # Join the file 2 and file 3 based on Country, Code and Year
+    join -t $'\t' -1 1 -2 1 sorted_combined_file2.tsv sorted_combined_file3.tsv > file23.tsv
+    cut -f1,2,3,4,6,7,11- file23.tsv > file23_1.tsv
+
+    # Removing unwanted files
+    rm sorted_combined_file2.tsv sorted_combined_file3.tsv file23.tsv
+
+    # Cutting Unwanted columns
+    sort -t$'\t' -k1,1 file23_1.tsv > sorted_file23_1.tsv
+
+    join -t $'\t' -1 1 -2 1 sorted_file23_1.tsv sorted_combined_file1.tsv > combined_file231.tsv
+    
+    # Cutting Unwanted columns
+    cut -f2,3,4,5,6,7,11,12 combined_file231.tsv > "$output_file"
+
+    # Removing unwanted files
+    rm sorted_combined_file1.tsv file23_1.tsv sorted_file23_1.tsv combined_file231.tsv
+
+    # Adding headers
+    sed -i '1iEntity\tCode\tYear\tGDP per capita, PPP (constant 2017 international $)\tPopulation (historical estimates)\tHomicide rate per 100,000 population - Both sexes - All ages\tLife expectancy - Sex: all - Age: at birth - Variant: estimates\tCantril ladder score' "$output_file"
+}
+# Checking for the number of arguments
+if [ "$#" -ne 3 ]; then
+    echo "Usage: $0 <gdp-vs-happiness.tsv> <homicide-rate-unodc.tsv> <life-satisfaction-vs-life-expectancy.tsv>"
+    exit 1
+fi
+
+# Checking if the files exist or are empty
+for file in "$1" "$2" "$3"; do
+    if [ ! -s "$file" ]; then
+        echo "The named input file $file does not exist or has zero length"
+        exit 1
+    fi
+done
+
+# Handling different order of arguments
+for file in "$@"; do
+    case "$file" in
+        *gdp-vs-happiness.tsv)
+            f2="$file"
+            ;;
+        *homicide-rate-unodc.tsv)
+            f3="$file"
+            ;;
+        *life-satisfaction-vs-life-expectancy.tsv)
+            f1="$file"
+            ;;
+        *)
+            echo "Unknown file: $file"
+            exit 1
+            ;;
+    esac
+done
+
+# Checking if the input files were as perr required
+if [[ -z "$f2" || -z "$f3" || -z "$f1" ]]; then
+    echo "Usage: <gdp-vs-happiness.tsv> <homicide-rate-unodc.tsv> <life-satisfaction-vs-life-expectancy.tsv>"
+    exit 1
+fi
+
+for file in "$f1" "$f2" "$f3"; do
+    # Checking file for number of fields and format
+    checkFile "$file"
+
+    # Sorting the contents of the file using country name
+    sortFile "$file"
+
+    # Filter the rows based on the year
+    filterYear "sorted_$file"
+
+    # Remove the "Continent" column from the cleaned file
+    removeContinent "filtered_sorted_$file"
+
+    # Remove rows with empty "Code" from the no continent file
+    removeEmptyCountryCode "no_continent_filtered_sorted_$file"
+done
+
+# Files for merging
+file1="final_no_continent_filtered_sorted_$f1"
+file2="final_no_continent_filtered_sorted_$f2"
+file3="final_no_continent_filtered_sorted_$f3"
+
+# Merging the files
+mergeFiles "$file1" "$file2" "$file3"
+
+# Cleaning up unwanted files
+rm "$file1" "$file2" "$file3"
+
+cat cleaned_file.tsv
