@@ -1,0 +1,231 @@
+#!/bin/bash
+
+calculate_correlation() 
+{
+    awk '
+    BEGIN {
+        FS = "\t";
+        OFS = "\t";
+        # Initialize the sums and counts for each country and predictor
+    }
+
+    function abs(x) 
+    {
+        return x < 0 ? -x : x
+    }
+
+    {
+        country = $1;
+        gdp = $4;
+        population = $5;
+        homicide_rate = $6;
+        life_expectancy = $7;
+        cantril = $8;
+
+        if (cantril != "" && gdp != "") 
+        {
+            gdp_sum[country] += gdp;
+            gdp_sq_sum[country] += gdp * gdp;
+            cantril_sum[country] += cantril;
+            cantril_sq_sum[country] += cantril * cantril;
+            gdp_cantril_sum[country] += gdp * cantril;
+            gdp_count[country]++;
+        }
+
+        if (cantril != "" && population != "") 
+        {
+            population_sum[country] += population;
+            population_sq_sum[country] += population * population;
+            population_cantril_sum[country] += population * cantril;
+            population_count[country]++;
+        }
+
+        if (cantril != "" && homicide_rate != "") 
+        {
+            homicide_sum[country] += homicide_rate;
+            homicide_sq_sum[country] += homicide_rate * homicide_rate;
+            homicide_cantril_sum[country] += homicide_rate * cantril;
+            homicide_count[country]++;
+        }
+
+        if (cantril != "" && life_expectancy != "") 
+        {
+            life_sum[country] += life_expectancy;
+            life_sq_sum[country] += life_expectancy * life_expectancy;
+            life_cantril_sum[country] += life_expectancy * cantril;
+            life_count[country]++;
+        }
+    }
+
+    END {
+        # Initialize the total sums and counts for each predictor
+        total_gdp_corr = 0; 
+        gdp_corr_count = 0;
+        total_population_corr = 0; 
+        population_corr_count = 0;
+        total_homicide_corr = 0; 
+        homicide_corr_count = 0;
+        total_life_corr = 0; 
+        life_corr_count = 0;
+
+
+
+        for (country in gdp_sum) 
+        {
+            if (gdp_count[country] >= 3) 
+            {
+                mean_gdp = gdp_sum[country] / gdp_count[country];
+                mean_cantril = cantril_sum[country] / gdp_count[country];
+                covariance = gdp_cantril_sum[country] / gdp_count[country] - mean_gdp * mean_cantril;
+                variance_gdp = gdp_sq_sum[country] / gdp_count[country] - mean_gdp * mean_gdp;
+                variance_cantril = cantril_sq_sum[country] / gdp_count[country] - mean_cantril * mean_cantril;
+
+                sqrroot = sqrt(variance_gdp * variance_cantril)
+
+                # Handling division by zero
+                if(sqrroot != 0)
+                {
+                    correlation_gdp = covariance / sqrroot;
+                }
+                else
+                {
+                    correlation_gdp = 0
+                }
+                total_gdp_corr += correlation_gdp;
+                gdp_corr_count++;
+            }
+        }
+
+        for (country in population_sum) 
+        {
+            if (population_count[country] >= 3) 
+            {
+                mean_population = population_sum[country] / population_count[country];
+                mean_cantril = cantril_sum[country] / population_count[country];
+                covariance = population_cantril_sum[country] / population_count[country] - mean_population * mean_cantril;
+                variance_population = population_sq_sum[country] / population_count[country] - mean_population * mean_population;
+                variance_cantril = cantril_sq_sum[country] / population_count[country] - mean_cantril * mean_cantril;
+                #print(variance_population, variance_cantril)
+
+                if(sqrt(variance_population * variance_cantril) != 0)
+                {
+                    correlation_population = covariance / sqrt(variance_population * variance_cantril);
+                }
+                else
+                {
+                    correlation_population = 0
+                }
+                total_population_corr += correlation_population;
+                population_corr_count++;
+            }
+        }
+
+        for (country in homicide_sum) 
+        {
+            if (homicide_count[country] >= 3) 
+            {
+                mean_homicide = homicide_sum[country] / homicide_count[country];
+                mean_cantril = cantril_sum[country] / homicide_count[country];
+                covariance = homicide_cantril_sum[country] / homicide_count[country] - mean_homicide * mean_cantril;
+                variance_homicide = homicide_sq_sum[country] / homicide_count[country] - mean_homicide * mean_homicide;
+                variance_cantril = cantril_sq_sum[country] / homicide_count[country] - mean_cantril * mean_cantril;
+                
+                if(sqrt(variance_homicide * variance_cantril) != 0)
+                {
+                    correlation_homicide = covariance / sqrt(variance_homicide * variance_cantril);
+                }
+                else
+                {
+                    correlation_homicide = 0
+                }
+                total_homicide_corr += correlation_homicide;
+                homicide_corr_count++;
+            }
+        }
+
+        for (country in life_sum) 
+        {
+            if (life_count[country] >= 3) 
+            {
+                mean_life = life_sum[country] / life_count[country];
+                mean_cantril = cantril_sum[country] / life_count[country];
+                covariance = life_cantril_sum[country] / life_count[country] - mean_life * mean_cantril;
+                variance_life = life_sq_sum[country] / life_count[country] - mean_life * mean_life;
+                variance_cantril = cantril_sq_sum[country] / life_count[country] - mean_cantril * mean_cantril;
+                
+                if(sqrt(variance_life * variance_cantril) != 0)
+                {
+                    correlation_life = covariance / sqrt(variance_life * variance_cantril);
+                }
+                else
+                {
+                    correlation_life = 0
+                }
+                total_life_corr += correlation_life;
+                life_corr_count++;
+            }
+        }
+
+        # Calculate mean correlations
+        mean_corr_gdp = (gdp_corr_count > 0) ? total_gdp_corr / gdp_corr_count : 0;
+        mean_corr_population = (population_corr_count > 0) ? total_population_corr / population_corr_count : 0;
+        mean_corr_homicide = (homicide_corr_count > 0) ? total_homicide_corr / homicide_corr_count : 0;
+        mean_corr_life = (life_corr_count > 0) ? total_life_corr / life_corr_count : 0;
+
+        # Print mean correlations
+        printf "Mean correlation of Homicide Rate with Cantril ladder is %.3f\n", mean_corr_homicide;
+        printf "Mean correlation of GDP with Cantril ladder is %.3f\n", mean_corr_gdp;
+        printf "Mean correlation of Population with Cantril ladder is %.3f\n", mean_corr_population;
+        printf "Mean correlation of Life Expectancy with Cantril ladder is %.3f\n", mean_corr_life;
+
+        # Determine and print the most predictive mean correlation
+        max_corr = 0;
+        max_predictor = "";
+
+        if (abs(mean_corr_gdp) > max_corr) 
+        {
+            max_corr = abs(mean_corr_gdp);
+            max_predictor = "GDP";
+        }
+        if (abs(mean_corr_population) > max_corr) 
+        {
+            max_corr = abs(mean_corr_population);
+            max_predictor = "Population";
+        }
+        if (abs(mean_corr_homicide) > max_corr) 
+        {
+            max_corr = abs(mean_corr_homicide);
+            max_predictor = "Homicide Rate";
+        }
+        if (abs(mean_corr_life) > max_corr) 
+        {
+            max_corr = abs(mean_corr_life);
+            max_predictor = "Life Expectancy";
+        }
+
+        if (max_predictor != "") 
+        {
+            printf "Most predictive mean correlation with the Cantril ladder is %s (r = %.3f)\n", max_predictor, -max_corr;
+        }
+    }
+    ' "$input_file"
+}
+
+# Checking usege
+if [ "$#" -ne 1 ]; then
+    echo "Usage: $0 <cleaned_file.csv>"
+    exit 1
+fi
+
+input_file="$1"
+
+# Checking for the existance of file and file contents
+if [ ! -s "$input_file" ]; then
+    echo "The named input file $input_file does not exist or has zero length"
+    exit 1
+fi
+
+#cat "$input_file"
+
+calculate_correlation "$input_file"
+
